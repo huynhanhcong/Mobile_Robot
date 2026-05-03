@@ -255,6 +255,35 @@
         </div>
       </section>
 
+      <section id="doctorLoginScreen" class="screen doctor-login-screen" data-screen="doctor-login" aria-label="Đăng nhập bác sĩ">
+        <button class="close-button floating-close" type="button" data-close aria-label="Đóng đăng nhập bác sĩ">
+          <img src="/robot/static/assets/Icon/Close.png" alt="" data-optional-icon />
+          <span aria-hidden="true">×</span>
+        </button>
+
+        <div class="doctor-login-wrap">
+          <form id="doctorLoginForm" class="doctor-login-card" autocomplete="off">
+            <span class="doctor-symbol">
+              <img src="/robot/static/assets/Icon/Doctor.png" alt="" data-optional-icon />
+            </span>
+            <header class="doctor-login-header">
+              <p>Khu vực chuyên môn</p>
+              <h2>Đăng nhập bác sĩ</h2>
+            </header>
+            <p id="doctorLoginError" class="doctor-login-error" role="alert" hidden></p>
+            <label class="settings-field doctor-login-field">
+              <span>Tên đăng nhập</span>
+              <input id="doctorLoginUsernameInput" type="text" autocomplete="username" />
+            </label>
+            <label class="settings-field doctor-login-field">
+              <span>Mật khẩu</span>
+              <input id="doctorLoginPasswordInput" type="password" autocomplete="current-password" />
+            </label>
+            <button class="doctor-login-submit" type="submit">Đăng nhập</button>
+          </form>
+        </div>
+      </section>
+
       <section id="doctorScreen" class="screen doctor-screen" data-screen="doctor" aria-label="Bác sĩ">
         <button id="doctorSettingsButton" class="settings-icon doctor-settings-button" type="button" aria-label="Cài đặt bác sĩ">
           <span class="icon-slot settings-icon-slot">
@@ -392,6 +421,22 @@
                   <label class="settings-field">
                     <span>Timeout lệnh (ms)</span>
                     <input id="arduinoTimeoutInput" type="number" min="500" step="100" placeholder="3000" />
+                  </label>
+                </section>
+
+                <section class="settings-section settings-section-account" aria-label="Cài đặt tài khoản bác sĩ">
+                  <div class="settings-section-title">
+                    <p>Tài khoản bác sĩ</p>
+                    <strong>Thông tin đăng nhập</strong>
+                  </div>
+                  <p id="doctorSettingsError" class="settings-error" role="alert" hidden></p>
+                  <label class="settings-field">
+                    <span>Tên đăng nhập</span>
+                    <input id="doctorUsernameInput" type="text" autocomplete="username" />
+                  </label>
+                  <label class="settings-field">
+                    <span>Mật khẩu mới</span>
+                    <input id="doctorPasswordInput" type="password" autocomplete="new-password" />
                   </label>
                 </section>
               </div>

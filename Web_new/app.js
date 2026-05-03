@@ -15,10 +15,13 @@ const state = {
   voiceBusy: false,
   voiceListening: false,
   voiceSpeaking: false,
+  voicePreferredVoice: null,
+  voiceWarmupDone: false,
   pendingVoiceMedicineSelection: false,
   medicineSelectionOpen: false,
   medicineOptions: [],
   doctorSettings: null,
+  doctorAuthenticated: false,
   doctorDoorOpen: false,
   doctorTrayBusy: false,
   selectedDoctorTab: "tabA",
@@ -54,6 +57,7 @@ const screens = {
   manual: document.querySelector("#manualScreen"),
   qr: document.querySelector("#qrScreen"),
   map: document.querySelector("#mapScreen"),
+  doctorLogin: document.querySelector("#doctorLoginScreen"),
   doctor: document.querySelector("#doctorScreen"),
   loading: document.querySelector("#loadingScreen"),
 };
@@ -82,6 +86,10 @@ const closeVoiceButtonEl = document.querySelector("#closeVoiceButton");
 const voiceStatusEl = document.querySelector("#voiceStatus");
 const voiceTranscriptEl = document.querySelector("#voiceTranscript");
 const medicineClassGridEl = document.querySelector("#medicineClassGrid");
+const doctorLoginFormEl = document.querySelector("#doctorLoginForm");
+const doctorLoginUsernameInputEl = document.querySelector("#doctorLoginUsernameInput");
+const doctorLoginPasswordInputEl = document.querySelector("#doctorLoginPasswordInput");
+const doctorLoginErrorEl = document.querySelector("#doctorLoginError");
 const doctorSettingsButtonEl = document.querySelector("#doctorSettingsButton");
 const settingsPanelEl = document.querySelector("#settingsPanel");
 const closeSettingsButtonEl = document.querySelector("#closeSettingsButton");
@@ -95,6 +103,9 @@ const volumeValueEl = document.querySelector("#volumeValue");
 const arduinoPortInputEl = document.querySelector("#arduinoPortInput");
 const arduinoBaudRateInputEl = document.querySelector("#arduinoBaudRateInput");
 const arduinoTimeoutInputEl = document.querySelector("#arduinoTimeoutInput");
+const doctorUsernameInputEl = document.querySelector("#doctorUsernameInput");
+const doctorPasswordInputEl = document.querySelector("#doctorPasswordInput");
+const doctorSettingsErrorEl = document.querySelector("#doctorSettingsError");
 const excelUploadButtonEl = document.querySelector("#excelUploadButton");
 const excelUploadInputEl = document.querySelector("#excelUploadInput");
 const excelUploadStatusEl = document.querySelector("#excelUploadStatus");
@@ -107,6 +118,13 @@ const doctorMedicineRowsEl = document.querySelector("#doctorMedicineRows");
 const doctorTabButtons = document.querySelectorAll("[data-doctor-tab]");
 
 const DOCTOR_SETTINGS_STORAGE_KEY = "robotDoctorSettings";
+const VOICE_GREETING_TEXT =
+  "Xin chào bạn, mình là KungKung, AI hỗ trợ tư vấn thông tin tại bệnh viện. Bạn cần mình giúp gì?";
+const VOICE_UTTERANCE_CONFIG = {
+  lang: "vi-VN",
+  rate: 0.95,
+  pitch: 1,
+};
 const API_MODEL_OPTIONS = {
   chatgpt: [
     { value: "gpt-4o-mini", label: "gpt-4o-mini" },
@@ -129,12 +147,13 @@ init();
 
 function init() {
   setupOptionalIcons();
+  setupSpeechSynthesisWarmup();
   updateClock();
   window.setInterval(updateClock, 1000);
   initDoctorPanel();
 
   guideButtonEl.addEventListener("click", () => showScreen("guideList"));
-  doctorButtonEl.addEventListener("click", () => showScreen("doctor"));
+  doctorButtonEl.addEventListener("click", openDoctorArea);
   mapButtonEl.addEventListener("click", () => showScreen("map"));
   medicineButtonEl.addEventListener("click", () => {
     clearMedicineErrors();
@@ -191,6 +210,71 @@ function setupOptionalIcons() {
   });
 }
 
+function setupSpeechSynthesisWarmup() {
+  if (!("speechSynthesis" in window)) {
+    return;
+  }
+
+  primeSpeechSynthesis();
+  window.speechSynthesis.addEventListener?.("voiceschanged", primeSpeechSynthesis);
+
+  const warmupOnUserGesture = () => primeSpeechSynthesis({ speak: true });
+  window.addEventListener("pointerdown", warmupOnUserGesture, { once: true, passive: true });
+  window.addEventListener("keydown", warmupOnUserGesture, { once: true });
+}
+
+function primeSpeechSynthesis({ speak = false } = {}) {
+  if (!("speechSynthesis" in window)) {
+    return;
+  }
+
+  const voices = window.speechSynthesis.getVoices();
+  state.voicePreferredVoice = selectVietnameseVoice(voices);
+  if (!speak || state.voiceWarmupDone) {
+    return;
+  }
+
+  state.voiceWarmupDone = true;
+  const warmupUtterance = createVoiceUtterance(" ");
+  warmupUtterance.volume = 0;
+  window.speechSynthesis.speak(warmupUtterance);
+}
+
+function selectVietnameseVoice(voices) {
+  if (!Array.isArray(voices) || voices.length === 0) {
+    return state.voicePreferredVoice;
+  }
+
+  return (
+    voices.find((voice) => voice.lang?.toLowerCase() === "vi-vn" && voice.localService) ||
+    voices.find((voice) => voice.lang?.toLowerCase().startsWith("vi") && voice.localService) ||
+    voices.find((voice) => voice.lang?.toLowerCase() === "vi-vn") ||
+    voices.find((voice) => voice.lang?.toLowerCase().startsWith("vi")) ||
+    state.voicePreferredVoice ||
+    null
+  );
+}
+
+function createVoiceUtterance(text) {
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.lang = VOICE_UTTERANCE_CONFIG.lang;
+  utterance.rate = VOICE_UTTERANCE_CONFIG.rate;
+  utterance.pitch = VOICE_UTTERANCE_CONFIG.pitch;
+  if (state.voicePreferredVoice) {
+    utterance.voice = state.voicePreferredVoice;
+  }
+  return utterance;
+}
+
+function cancelSpeechSynthesis() {
+  if (
+    "speechSynthesis" in window &&
+    (window.speechSynthesis.speaking || window.speechSynthesis.pending)
+  ) {
+    window.speechSynthesis.cancel();
+  }
+}
+
 function updateClock() {
   const now = new Date();
   clockTextEl.textContent = new Intl.DateTimeFormat("vi-VN", {
@@ -235,6 +319,9 @@ function initDoctorPanel() {
   renderDoctorStatus();
   renderDoctorMedicineList();
 
+  doctorLoginFormEl.addEventListener("submit", handleDoctorLogin);
+  doctorLoginUsernameInputEl.addEventListener("input", clearDoctorLoginError);
+  doctorLoginPasswordInputEl.addEventListener("input", clearDoctorLoginError);
   doctorSettingsButtonEl.addEventListener("click", openDoctorSettings);
   closeSettingsButtonEl.addEventListener("click", closeDoctorSettings);
   settingsPanelEl.addEventListener("click", (event) => {
@@ -244,7 +331,11 @@ function initDoctorPanel() {
   });
   doctorSettingsFormEl.addEventListener("submit", (event) => {
     event.preventDefault();
-    state.doctorSettings = collectDoctorSettingsFromForm();
+    const nextSettings = collectDoctorSettingsFromForm();
+    if (!validateDoctorAccountSettings(nextSettings)) {
+      return;
+    }
+    state.doctorSettings = nextSettings;
     saveDoctorSettings(state.doctorSettings);
     renderDoctorStatus();
     closeDoctorSettings();
@@ -266,6 +357,8 @@ function initDoctorPanel() {
 
 function getDefaultDoctorSettings() {
   return {
+    doctorUsername: "doctor",
+    doctorPassword: "123546",
     apiProvider: "chatgpt",
     apiModel: "gpt-4o-mini",
     apiBaseUrl: "",
@@ -307,11 +400,16 @@ function applyDoctorSettingsToForm() {
   arduinoPortInputEl.value = settings.arduinoPort || "";
   arduinoBaudRateInputEl.value = String(settings.arduinoBaudRate || 115200);
   arduinoTimeoutInputEl.value = String(settings.arduinoTimeout || 3000);
+  doctorUsernameInputEl.value = settings.doctorUsername || "doctor";
+  doctorPasswordInputEl.value = settings.doctorPassword || "123546";
+  clearDoctorSettingsError();
   updateVolumeLabel();
 }
 
 function collectDoctorSettingsFromForm() {
   return {
+    doctorUsername: doctorUsernameInputEl.value.trim(),
+    doctorPassword: doctorPasswordInputEl.value.trim(),
     apiProvider: apiProviderSelectEl.value,
     apiModel: apiModelSelectEl.value,
     apiBaseUrl: apiBaseUrlInputEl.value.trim(),
@@ -321,6 +419,63 @@ function collectDoctorSettingsFromForm() {
     arduinoBaudRate: Number(arduinoBaudRateInputEl.value || 115200),
     arduinoTimeout: Number(arduinoTimeoutInputEl.value || 3000),
   };
+}
+
+function openDoctorArea() {
+  clearDoctorLoginError();
+  if (state.doctorAuthenticated) {
+    showScreen("doctor");
+    return;
+  }
+  doctorLoginFormEl.reset();
+  showScreen("doctorLogin");
+  doctorLoginUsernameInputEl.focus();
+}
+
+function handleDoctorLogin(event) {
+  event.preventDefault();
+  const settings = state.doctorSettings || getDefaultDoctorSettings();
+  const username = doctorLoginUsernameInputEl.value.trim();
+  const password = doctorLoginPasswordInputEl.value;
+  if (username === settings.doctorUsername && password === settings.doctorPassword) {
+    state.doctorAuthenticated = true;
+    clearDoctorLoginError();
+    doctorLoginFormEl.reset();
+    showScreen("doctor");
+    return;
+  }
+  doctorLoginErrorEl.textContent = "Tên đăng nhập hoặc mật khẩu không đúng.";
+  doctorLoginErrorEl.hidden = false;
+  doctorLoginPasswordInputEl.value = "";
+  doctorLoginPasswordInputEl.focus();
+}
+
+function clearDoctorLoginError() {
+  doctorLoginErrorEl.textContent = "";
+  doctorLoginErrorEl.hidden = true;
+}
+
+function validateDoctorAccountSettings(settings) {
+  clearDoctorSettingsError();
+  if (!settings.doctorUsername || !settings.doctorPassword) {
+    doctorSettingsErrorEl.textContent = "Tên đăng nhập và mật khẩu bác sĩ không được để trống.";
+    doctorSettingsErrorEl.hidden = false;
+    if (!settings.doctorUsername) {
+      doctorUsernameInputEl.focus();
+    } else {
+      doctorPasswordInputEl.focus();
+    }
+    return false;
+  }
+  return true;
+}
+
+function clearDoctorSettingsError() {
+  if (!doctorSettingsErrorEl) {
+    return;
+  }
+  doctorSettingsErrorEl.textContent = "";
+  doctorSettingsErrorEl.hidden = true;
 }
 
 function updateVolumeLabel() {
@@ -345,6 +500,7 @@ function openDoctorSettings() {
 function closeDoctorSettings() {
   if (settingsPanelEl) {
     settingsPanelEl.hidden = true;
+    clearDoctorSettingsError();
   }
 }
 
@@ -620,6 +776,7 @@ function openVoiceMode() {
   clearMedicineSelectionOverlay();
   setVoiceState("idle", "Sẵn sàng nghe");
   voiceTranscriptEl.textContent = "";
+  primeSpeechSynthesis({ speak: true });
 
   if (!SpeechRecognition) {
     setVoiceState("error", "Trình duyệt không hỗ trợ giọng nói");
@@ -627,7 +784,7 @@ function openVoiceMode() {
   }
 
   setupRecognition();
-  startListening();
+  speakAnswer(VOICE_GREETING_TEXT);
 }
 
 function closeVoiceMode() {
@@ -636,7 +793,7 @@ function closeVoiceMode() {
   state.voiceSpeaking = false;
   clearMedicineSelectionOverlay();
   if ("speechSynthesis" in window) {
-    window.speechSynthesis.cancel();
+    cancelSpeechSynthesis();
   }
   if (state.recognition) {
     try {
@@ -903,13 +1060,12 @@ function logVoiceMetric(metric, elapsedMs, label = "") {
     payload.label = label;
   }
 
-  const messageLabel =
-    label ||
-    {
-      ai_response: "Thời gian phản hồi của AI",
-      voice_response: "Thời gian phản hồi của voice",
-    }[metric] ||
-    metric;
+  const metricLabels = {
+    ai_response: "AI response time",
+    voice_start_latency: "Voice start latency",
+    voice_response: "Voice playback duration",
+  };
+  const messageLabel = label || metricLabels[metric] || metric;
   console.info(`${messageLabel}: ${payload.elapsed_ms} ms (${(payload.elapsed_ms / 1000).toFixed(2)} s)`);
 
   fetch("/robot/api/voice-metrics", {
@@ -930,15 +1086,21 @@ function speakAnswer(text) {
     return;
   }
 
-  window.speechSynthesis.cancel();
+  primeSpeechSynthesis();
+  cancelSpeechSynthesis();
   state.voiceSpeaking = true;
   setVoiceState("speaking", "Đang trả lời");
   const voiceStartedAt = performance.now();
-  const utterance = new SpeechSynthesisUtterance(text);
-  utterance.lang = "vi-VN";
-  utterance.rate = 0.95;
-  utterance.pitch = 1;
+  let startLatencyLogged = false;
+  const utterance = createVoiceUtterance(text);
+  utterance.addEventListener("start", () => {
+    logVoiceMetric("voice_start_latency", performance.now() - voiceStartedAt);
+    startLatencyLogged = true;
+  });
   utterance.addEventListener("end", () => {
+    if (!startLatencyLogged) {
+      logVoiceMetric("voice_start_latency", performance.now() - voiceStartedAt);
+    }
     logVoiceMetric("voice_response", performance.now() - voiceStartedAt);
     state.voiceSpeaking = false;
     if (state.voiceOpen) {
@@ -947,6 +1109,9 @@ function speakAnswer(text) {
     }
   });
   utterance.addEventListener("error", () => {
+    if (!startLatencyLogged) {
+      logVoiceMetric("voice_start_latency", performance.now() - voiceStartedAt);
+    }
     logVoiceMetric("voice_response", performance.now() - voiceStartedAt);
     state.voiceSpeaking = false;
     if (state.voiceOpen) {
